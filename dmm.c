@@ -1,6 +1,7 @@
 #include <stdio.h>  // needed for size_t
 #include <sys/mman.h> // needed for mmap
 #include <assert.h> // needed for asserts
+#include <limits.h>
 #include "dmm.h"
 
 /* You can improve the below metadata structure using the concepts from Bryant
@@ -38,51 +39,78 @@ void* dmalloc(size_t numbytes) {
 
   int blocksize = numbytes + METADATA_T_ALIGNED;
   metadata_t *freelist_iter = freelist;
-  while(freelist_iter->size < blocksize && freelist_iter->next != NULL){
+  metadata_t *max = freelist_iter;
+  int val = INT_MAX;
+  printf("Blocksize: %i\n", blocksize);
+  while(freelist_iter->next != NULL){
+    if(freelist_iter->size > blocksize && freelist_iter->size < val){
+      val = freelist_iter->size;
+      max = freelist_iter;
+    }
     freelist_iter = freelist_iter->next;
+    printf("%p\n", freelist_iter);
   }
-  assert(freelist_iter->size >= blocksize);
-  metadata_t *new_block = freelist_iter + (freelist_iter->size - blocksize);
-  new_block->size = blocksize;
+  assert(max->size >= blocksize);
+  //freelist_iter=max;
+  metadata_t *new_block = (void*)max + (max->size + METADATA_T_ALIGNED - blocksize);
+  new_block->size = numbytes;
   new_block->next = NULL;
   new_block->prev = NULL;
   freelist_iter->size -= blocksize;
+  //if(freelist_iter->next != NULL){
+    //freelist_iter->next = (void*)freelist_iter + blocksize;
+    //freelist_iter->next->prev = freelist_iter;
+  //}
 	
   return (void*) new_block + METADATA_T_ALIGNED;
 }
 
 void dfree(void* ptr) {
   /* your code here */
-  if(freelist == NULL) {      
-    if(!dmalloc_init())
-      return NULL;
-  }
+  ptr -= METADATA_T_ALIGNED;
   metadata_t *freelist_iter = freelist;
-  metadata_t *new_block = ptr;
-  while(freelist_iter < ptr && freelist_iter->next != NULL){
+  metadata_t *new_block = (metadata_t*) ptr;
+  while(freelist_iter < (metadata_t*)ptr && freelist_iter->next != NULL){
+        printf("%p\n", freelist_iter->prev);
+    printf("%p\n", freelist_iter);
+    printf("%p\n", freelist_iter->next);
     freelist_iter = freelist_iter->next;
+        printf("%p\n", freelist_iter->prev);
+    printf("%p\n", freelist_iter);
+    printf("%p\n", freelist_iter->next);
   }
-  if(freelist_iter < ptr){
+      printf("%p\n", freelist_iter->prev);
+    printf("%p\n", freelist_iter);
+    printf("%p\n", freelist_iter->next);
+  if(freelist_iter < (metadata_t*)ptr){
+    printf("%s\n", "here");
     freelist_iter->next = new_block;
-    return (void*) freelist;
+    new_block->prev = freelist_iter;
   }
-  freelist_iter->prev->next = new_block;
-  new_block->next = freelist_iter;
-  new_block->prev = freelist_iter->prev;
-  freelist_iter->prev = new_block;
+  else{
+    new_block->next = freelist_iter;
+    if(freelist_iter->prev != NULL){
+      //printf("%p\n", freelist_iter->prev->next);
+      metadata_t *prev_node = freelist_iter->prev;
+      prev_node->next = new_block;
+      new_block->prev = prev_node;
+    }
+    freelist_iter->prev = new_block;
+  }
 
   metadata_t *coalescing = freelist;
   while(coalescing->next != NULL){
-    if(coalescing + coalescing->size == coalescing->next){
-      coalescing->size += coalescing->next->size;
+    if((void*)coalescing + coalescing->size + METADATA_T_ALIGNED == coalescing->next){
+      coalescing->size += coalescing->next->size + METADATA_T_ALIGNED;
       coalescing->next = coalescing->next->next;
-      coalescing->next->prev = coalescing;
+      if(coalescing->next != NULL){
+        coalescing->next->prev = coalescing;
+      }
     }
     else{
-      coalescing = coalescing->next;
+      coalescing = (metadata_t*)coalescing->next;
     }
   }
-  
 }
 
 bool dmalloc_init() {
